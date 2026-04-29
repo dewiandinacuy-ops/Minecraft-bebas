@@ -1,0 +1,640 @@
+# .github/workflows/vps-manager-ultimate.yml
+name: 💀 ULTIMATE BEBEK MANAGER - DIZX EDITION 💀
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '*/5 * * * *'
+
+jobs:
+  run-bot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    
+    steps:
+    - name: 🔧 Setup Environment
+      run: |
+        sudo apt update && sudo apt upgrade -y
+        sudo apt install -y qemu-kvm qemu-utils virtinst cloud-image-utils docker.io
+        pip install python-telegram-bot asyncio aiohttp docker requests colorama
+
+    - name: 🎨 Create Ultimate Bot Script
+      run: |
+        cat > ultimate_vps_bot.py << 'EOF'
+import json, time, subprocess, os, asyncio, random, string
+from datetime import datetime
+from colorama import Fore, Style, init
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ParseMode
+from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes, MessageHandler, filters
+
+init(autoreset=True)
+
+# ============ KONFIGURASI ============
+TOKEN = "8343206643:AAE2Z_1Ip4l8jdf71cQ3CxBx1Xkv-reFhqg"
+OWNER_ID = 8028341598
+ADMIN_IDS = [8028341598]  # Bisa tambah multiple admin
+user_vms = {}
+user_data = {}
+broadcast_messages = []
+
+# ============ ASCII ART & STYLE ============
+BANNER = """
+╔══════════════════════════════════════════════════════════╗
+║                                                          ║
+║    ██╗   ██╗██████╗ ███████╗    ███╗   ███╗ █████╗ ███╗   ██╗
+║    ██║   ██║██╔══██╗██╔════╝    ████╗ ████║██╔══██╗████╗  ██║
+║    ██║   ██║██████╔╝███████╗    ██╔████╔██║███████║██╔██╗ ██║
+║    ╚██╗ ██╔╝██╔═══╝ ╚════██║    ██║╚██╔╝██║██╔══██║██║╚██╗██║
+║     ╚████╔╝ ██║     ███████║    ██║ ╚═╝ ██║██║  ██║██║ ╚████║
+║      ╚═══╝  ╚═╝     ╚══════╝    ╚═╝     ╚═╝╚═╝  ╚═╝╚═╝  ╚═══╝
+║                                                          ║
+║              ██████╗  ██████╗ ████████╗                 ║
+║              ██╔══██╗██╔═══██╗╚══██╔══╝                 ║
+║              ██████╔╝██║   ██║   ██║                    ║
+║              ██╔══██╗██║   ██║   ██║                    ║
+║              ██████╔╝╚██████╔╝   ██║                    ║
+║              ╚═════╝  ╚═════╝    ╚═╝                    ║
+║                                                          ║
+║           🔥 DIZX ULTIMATE VPS MANAGER 🔥               ║
+║                   POWERED BY DIZX                        ║
+╚══════════════════════════════════════════════════════════╝
+"""
+
+def stylish_text(text, style="neon"):
+    styles = {
+        "neon": f"✨ {text} ✨",
+        "fire": f"🔥 {text} 🔥",
+        "crown": f"👑 {text} 👑",
+        "skull": f"💀 {text} 💀",
+        "tech": f"⚡ {text} ⚡"
+    }
+    return styles.get(style, text)
+
+# ============ VM TEMPLATES ============
+templates = {
+    "🐧 UBUNTU": {
+        "24.04 LTS (Noble)": "ubuntu-24.04-server-cloudimg-amd64.img",
+        "22.04 LTS (Jammy)": "ubuntu-22.04-server-cloudimg-amd64.img",
+        "20.04 LTS (Focal)": "ubuntu-20.04-server-cloudimg-amd64.img",
+        "18.04 LTS (Bionic)": "ubuntu-18.04-server-cloudimg-amd64.img"
+    },
+    "🪟 WINDOWS": {
+        "Windows 11 Pro": "win11.qcow2",
+        "Windows 10 Pro": "win10.qcow2",
+        "Windows Server 2022": "win2022.qcow2",
+        "Windows Server 2019": "win2019.qcow2"
+    },
+    "🎯 DEBIAN": {
+        "Debian 12 (Bookworm)": "debian-12-genericcloud-amd64.qcow2",
+        "Debian 11 (Bullseye)": "debian-11-genericcloud-amd64.qcow2",
+        "Debian 10 (Buster)": "debian-10-genericcloud-amd64.qcow2"
+    },
+    "🛡️ CENTOS/RHEL": {
+        "CentOS Stream 9": "CentOS-9-GenericCloud-latest.qcow2",
+        "CentOS Stream 8": "CentOS-8-GenericCloud-latest.qcow2",
+        "Rocky Linux 9": "rocky-9.qcow2",
+        "AlmaLinux 9": "almalinux-9.qcow2"
+    },
+    "⚡ ALPINE": {
+        "Alpine 3.19": "alpine-virt-3.19.0-x86_64.qcow2",
+        "Alpine 3.18": "alpine-virt-3.18.0-x86_64.qcow2"
+    },
+    "🔥 KALI LINUX": {
+        "Kali 2024.1": "kali-linux-2024.1-qemu-amd64.qcow2",
+        "Kali 2023.4": "kali-linux-2023.4-qemu-amd64.qcow2"
+    }
+}
+
+softwares = {
+    "🌐 WEB SERVER": ["nginx", "apache2", "caddy", "liteSpeed", "openlitespeed", "traefik"],
+    "🗄️ DATABASE": ["mysql", "postgresql", "mongodb", "redis", "mariadb", "cassandra"],
+    "🎮 PANEL": ["pterodactyl", "vestacp", "hestiacp", "cloudpanel", "aaPanel", "CyberPanel"],
+    "🔒 VPN": ["openvpn", "wireguard", "outline", "shadowsocks", "v2ray", "xray", "openconnect"],
+    "🖥️ RDP": ["xrdp", "tightvnc", "x2go", "gnome-remote", "krdp", "remmina"],
+    "🐳 DOCKER": ["docker", "docker-compose", "portainer", "rancher", "k3s", "k8s"],
+    "📁 CLOUD": ["nextcloud", "owncloud", "seafile", "filebrowser", "cloudreve"],
+    "🔐 SECURITY": ["fail2ban", "clamav", "rkhunter", "lynis", "ossec", "wazuh"]
+}
+
+# ============ VM MANAGER CLASS ============
+class VMManager:
+    def __init__(self, user_id):
+        self.user_id = user_id
+        self.vm_path = f"/tmp/vms/{user_id}"
+        
+    def create_vm(self, os_type, version, ram=2, cpu=1, disk=10):
+        is_owner = self.user_id == OWNER_ID
+        current_vms = len(user_vms.get(self.user_id, []))
+        
+        if not is_owner and current_vms >= 1:
+            return False, "╔════════════════════════════╗\n║  ❌ FREE USER LIMIT! ❌   ║\n║  Max 1 VM per user       ║\n║  Upgrade ke owner?       ║\n╚════════════════════════════╝"
+        
+        os.makedirs(self.vm_path, exist_ok=True)
+        img_name = templates.get(os_type, {}).get(version, "")
+        if not img_name:
+            return False, "❌ OS/Version tidak tersedia!"
+        
+        vm_name = f"DIZX_{self.user_id}_{int(time.time())}_{''.join(random.choices(string.ascii_uppercase + string.digits, k=4))}"
+        
+        # Custom specs untuk owner
+        if is_owner:
+            ram, cpu, disk = 32, 16, 500
+            spec_text = "UNLIMITED (OWNER MODE)"
+        else:
+            spec_text = f"{ram}GB RAM | {cpu} Core | {disk}GB SSD"
+        
+        cmd = f"""
+        qemu-img create -f qcow2 {self.vm_path}/{vm_name}.qcow2 {disk}G
+        virt-install --name {vm_name} --ram {ram*1024} --vcpus {cpu} \
+        --disk path={self.vm_path}/{vm_name}.qcow2,size={disk} \
+        --os-variant {os_type.split()[1].lower()} --import --noautoconsole \
+        --network network=default
+        """
+        subprocess.run(cmd, shell=True, capture_output=True)
+        
+        vm_info = {
+            "name": vm_name,
+            "os": f"{os_type} {version}",
+            "ram": ram,
+            "cpu": cpu,
+            "disk": disk,
+            "created": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "status": "🟢 RUNNING",
+            "ip": self.get_vm_ip(vm_name)
+        }
+        
+        user_vms.setdefault(self.user_id, []).append(vm_info)
+        return True, vm_info, spec_text
+    
+    def delete_vm(self, vm_name):
+        subprocess.run(f"virsh destroy {vm_name} 2>/dev/null", shell=True)
+        subprocess.run(f"virsh undefine {vm_name} 2>/dev/null", shell=True)
+        subprocess.run(f"rm -rf {self.vm_path}/{vm_name}.qcow2", shell=True)
+        user_vms[self.user_id] = [v for v in user_vms.get(self.user_id, []) if v["name"] != vm_name]
+        return True
+    
+    def delete_any_vm(self, vm_name, target_user):
+        for uid, vms in user_vms.items():
+            for vm in vms:
+                if vm["name"] == vm_name:
+                    subprocess.run(f"virsh destroy {vm_name} 2>/dev/null", shell=True)
+                    subprocess.run(f"virsh undefine {vm_name} 2>/dev/null", shell=True)
+                    subprocess.run(f"rm -rf /tmp/vms/{uid}/{vm_name}.qcow2", shell=True)
+                    user_vms[uid] = [v for v in user_vms[uid] if v["name"] != vm_name]
+                    return True
+        return False
+    
+    def get_status(self):
+        result = subprocess.run("virsh list --all", shell=True, capture_output=True, text=True)
+        return result.stdout
+    
+    def get_vm_ip(self, vm_name):
+        result = subprocess.run(f"virsh domifaddr {vm_name} | grep -Eo '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+'", shell=True, capture_output=True, text=True)
+        return result.stdout.strip() or "Getting IP..."
+    
+    def install_software(self, vm_name, category, package):
+        if package in softwares.get(category, []):
+            cmd = f"virsh qemu-agent-command {vm_name} '{{\"execute\":\"guest-exec\",\"arguments\":{{\"path\":\"/usr/bin/apt\",\"arg\":[\"install\",\"-y\",\"{package}\"],\"capture-output\":true}}}}'"
+            subprocess.run(cmd, shell=True)
+            return f"✅ {package} terinstall di {vm_name}"
+        return "❌ Software tidak tersedia"
+    
+    def reboot_vm(self, vm_name):
+        subprocess.run(f"virsh reboot {vm_name}", shell=True)
+        return f"🔄 {vm_name} sedang reboot..."
+    
+    def stop_vm(self, vm_name):
+        subprocess.run(f"virsh destroy {vm_name}", shell=True)
+        return f"⏹️ {vm_name} berhenti"
+    
+    def start_vm(self, vm_name):
+        subprocess.run(f"virsh start {vm_name}", shell=True)
+        return f"▶️ {vm_name} mulai"
+
+# ============ TELEGRAM HANDLERS ============
+async def menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    is_owner = user.id == OWNER_ID
+    vm_count = len(user_vms.get(user.id, []))
+    
+    menu_text = f"""
+{BANNER}
+
+╔════════════════════════════════════════════════╗
+║                  📊 USER INFO                  ║
+╠════════════════════════════════════════════════╣
+║  👤 NAME    : {user.first_name}                    
+║  🆔 ID      : {user.id}                         
+║  👑 STATUS  : {'🔥 OWNER 🔥' if is_owner else '⚡ FREE USER ⚡'}                 
+║  📦 VM USED  : {vm_count}/{'∞' if is_owner else '1'}                     
+╚════════════════════════════════════════════════╝
+
+┌────────────────────────────────────────────────┐
+│              🚀 AVAILABLE FEATURES              │
+├────────────────────────────────────────────────┤
+│  📦 CREATE VM     │  🗑️ DELETE VM              │
+│  💻 INSTALL SW    │  📊 CHECK STATUS           │
+│  🔧 MY VPS LIST   │  🎮 CONTROL VM             │
+│  ⚡ REBOOT VM     │  ⏹️ STOP VM                │
+│  ▶️ START VM      │  ℹ️ INFO                   │
+└────────────────────────────────────────────────┘
+"""
+    
+    keyboard = [
+        [InlineKeyboardButton("📦 CREATE NEW VM", callback_data="create_menu")],
+        [InlineKeyboardButton("🗑️ DELETE VM", callback_data="delete_menu")],
+        [InlineKeyboardButton("💻 INSTALL SOFTWARE", callback_data="software_menu")],
+        [InlineKeyboardButton("🎮 CONTROL PANEL", callback_data="control_menu")],
+        [InlineKeyboardButton("📊 MY VPS LIST", callback_data="my_vms")],
+        [InlineKeyboardButton("🔍 CHECK STATUS", callback_data="status")],
+        [InlineKeyboardButton("👑 OWNER ZONE", callback_data="owner_panel")] if is_owner else [],
+        [InlineKeyboardButton("ℹ️ INFO & HELP", callback_data="info")]
+    ]
+    
+    if is_owner:
+        keyboard.insert(3, [InlineKeyboardButton("📢 BROADCAST", callback_data="broadcast_menu")])
+    
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await update.message.reply_text(menu_text, reply_markup=reply_markup, parse_mode=ParseMode.HTML)
+
+# ============ OWNER BROADCAST ============
+async def broadcast_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != OWNER_ID:
+        await update.callback_query.answer("🚫 YOU ARE NOT THE OWNER!", show_alert=True)
+        return
+    
+    keyboard = [
+        [InlineKeyboardButton("📝 SEND BROADCAST", callback_data="broadcast_send")],
+        [InlineKeyboardButton("📜 VIEW HISTORY", callback_data="broadcast_history")],
+        [InlineKeyboardButton("🗑️ CLEAR HISTORY", callback_data="broadcast_clear")],
+        [InlineKeyboardButton("◀️ BACK", callback_data="owner_panel")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await update.callback_query.message.edit_text(
+        "╔════════════════════════════╗\n"
+        "║     📢 BROADCAST SYSTEM    ║\n"
+        "╠════════════════════════════╣\n"
+        "║  Kirim pesan ke semua user ║\n"
+        "║  Yang bisa akses: OWNER    ║\n"
+        "╚════════════════════════════╝",
+        reply_markup=reply_markup
+    )
+
+async def broadcast_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != OWNER_ID:
+        return
+    await update.callback_query.message.edit_text("✍️ Kirim pesan broadcast yang mau disebar:")
+    context.user_data["awaiting_broadcast"] = True
+
+async def handle_broadcast_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if context.user_data.get("awaiting_broadcast") and update.effective_user.id == OWNER_ID:
+        broadcast_msg = update.message.text
+        sender = update.effective_user
+        
+        broadcast_data = {
+            "id": len(broadcast_messages) + 1,
+            "message": broadcast_msg,
+            "sender": sender.first_name,
+            "sender_id": sender.id,
+            "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "total_sent": 0
+        }
+        
+        # Kirim ke semua user yang pernah interaksi
+        sent_count = 0
+        for user_id in user_data.keys():
+            try:
+                await context.bot.send_message(
+                    chat_id=user_id,
+                    text=f"╔════════════════════════════╗\n"
+                         f"║    📢 OFFICIAL BROADCAST   ║\n"
+                         f"╠════════════════════════════╣\n"
+                         f"║  From: {sender.first_name}   ║\n"
+                         f"║  Time: {broadcast_data['time']}  ║\n"
+                         f"╠════════════════════════════╣\n"
+                         f"║  {broadcast_msg}\n"
+                         f"╚════════════════════════════╝"
+                )
+                sent_count += 1
+            except:
+                pass
+        
+        broadcast_data["total_sent"] = sent_count
+        broadcast_messages.append(broadcast_data)
+        
+        await update.message.reply_text(f"✅ Broadcast terkirim ke {sent_count} user!")
+        context.user_data["awaiting_broadcast"] = False
+
+# ============ OWNER DELETE ANY VM ============
+async def owner_delete_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != OWNER_ID:
+        return
+    
+    all_vms = []
+    for uid, vms in user_vms.items():
+        for vm in vms:
+            all_vms.append((uid, vm))
+    
+    if not all_vms:
+        await update.callback_query.message.edit_text("⚠️ Tidak ada VM yang bisa dihapus!")
+        return
+    
+    keyboard = []
+    for uid, vm in all_vms[:20]:  # Max 20 per page
+        keyboard.append([InlineKeyboardButton(f"🗑️ {vm['name']} (User: {uid})", callback_data=f"owner_del_{vm['name']}_{uid}")])
+    keyboard.append([InlineKeyboardButton("◀️ BACK", callback_data="owner_panel")])
+    
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await update.callback_query.message.edit_text("🗑️ Pilih VM yang mau dihapus:", reply_markup=reply_markup)
+
+async def owner_execute_delete(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != OWNER_ID:
+        return
+    
+    _, vm_name, target_user = update.callback_query.data.split("_", 2)
+    target_user = int(target_user)
+    
+    vm = VMManager(target_user)
+    if vm.delete_any_vm(vm_name, target_user):
+        await update.callback_query.message.edit_text(f"✅ VM {vm_name} berhasil dihapus oleh OWNER!")
+    else:
+        await update.callback_query.message.edit_text(f"❌ Gagal menghapus {vm_name}")
+
+# ============ OWNER LIST ALL USERS ============
+async def owner_list_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != OWNER_ID:
+        return
+    
+    if not user_data:
+        await update.callback_query.message.edit_text("⚠️ Belum ada user yang register!")
+        return
+    
+    user_list = "╔══════════════════════════════════╗\n"
+    user_list += "║        📋 ALL REGISTERED USERS    ║\n"
+    user_list += "╠══════════════════════════════════╣\n"
+    
+    for uid, data in user_data.items():
+        vm_count = len(user_vms.get(uid, []))
+        user_list += f"║  🆔 {uid} | VM: {vm_count}               ║\n"
+    
+    user_list += "╚══════════════════════════════════╝"
+    
+    keyboard = [[InlineKeyboardButton("◀️ BACK", callback_data="owner_panel")]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await update.callback_query.message.edit_text(user_list, reply_markup=reply_markup)
+
+# ============ OWNER GIFT VM ============
+async def owner_gift_vm(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != OWNER_ID:
+        return
+    await update.callback_query.message.edit_text("✍️ Masukkan ID user target untuk di-gift VM:")
+    context.user_data["awaiting_gift_user"] = True
+
+async def handle_gift_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if context.user_data.get("awaiting_gift_user") and update.effective_user.id == OWNER_ID:
+        target_user_id = int(update.message.text)
+        context.user_data["gift_target"] = target_user_id
+        context.user_data["awaiting_gift_user"] = False
+        
+        # Show OS selection for gift
+        keyboard = []
+        for os_type in templates.keys():
+            keyboard.append([InlineKeyboardButton(os_type, callback_data=f"gift_os_{os_type}_{target_user_id}")])
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await update.message.reply_text("🎁 Pilih OS untuk gift VM:", reply_markup=reply_markup)
+
+# ============ OWNER PANEL ============
+async def owner_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != OWNER_ID:
+        await update.callback_query.answer("🚫 OWNER ONLY!", show_alert=True)
+        return
+    
+    total_users = len(user_data)
+    total_vms = sum(len(vms) for vms in user_vms.values())
+    
+    owner_text = f"""
+╔══════════════════════════════════════════════════╗
+║              👑 OWNER CONTROL CENTER 👑          ║
+╠══════════════════════════════════════════════════╣
+║  📊 TOTAL USERS  : {total_users}                                
+║  🖥️ TOTAL VMS    : {total_vms}                                
+║  🔥 STATUS       : ULTIMATE MODE ACTIVE                       
+║  💾 SYSTEM       : READY                                      
+╚══════════════════════════════════════════════════╝
+
+┌──────────────────────────────────────────────────┐
+│                  OWNER TOOLS                      │
+├──────────────────────────────────────────────────┤
+│  📢 BROADCAST     │  Kirim pesan ke semua user   │
+│  👥 LIST USERS    │  Lihat semua user            │
+│  🗑️ DELETE VM    │  Hapus VM user manapun       │
+│  🎁 GIFT VM       │  Kasih VM gratis ke user     │
+│  ⚡ UNLIMITED     │  Owner unlimited mode        │
+│  💾 BACKUP        │  Backup semua data           │
+│  🔄 RESET         │  Reset semua VM              │
+│  📊 STATS         │  Lihat statistik lengkap     │
+└──────────────────────────────────────────────────┘
+"""
+    
+    keyboard = [
+        [InlineKeyboardButton("📢 BROADCAST", callback_data="broadcast_menu")],
+        [InlineKeyboardButton("👥 LIST ALL USERS", callback_data="owner_list_users")],
+        [InlineKeyboardButton("🗑️ DELETE ANY VM", callback_data="owner_delete_menu")],
+        [InlineKeyboardButton("🎁 GIFT VM TO USER", callback_data="owner_gift")],
+        [InlineKeyboardButton("⚡ OWNER UNLIMITED", callback_data="owner_unlimited")],
+        [InlineKeyboardButton("💾 BACKUP SYSTEM", callback_data="owner_backup")],
+        [InlineKeyboardButton("📊 FULL STATISTICS", callback_data="owner_stats")],
+        [InlineKeyboardButton("🔄 RESET ALL VMS", callback_data="owner_reset")],
+        [InlineKeyboardButton("◀️ BACK TO MENU", callback_data="back_to_menu")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await update.callback_query.message.edit_text(owner_text, reply_markup=reply_markup)
+
+async def owner_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != OWNER_ID:
+        return
+    
+    total_users = len(user_data)
+    total_vms = sum(len(vms) for vms in user_vms.values())
+    
+    os_stats = {}
+    for vms in user_vms.values():
+        for vm in vms:
+            os_name = vm['os'].split()[0]
+            os_stats[os_name] = os_stats.get(os_name, 0) + 1
+    
+    stats_text = f"""
+╔════════════════════════════════╗
+║       📊 SYSTEM STATISTICS     ║
+╠════════════════════════════════╣
+║  👥 Total Users    : {total_users}       
+║  🖥️ Total VMs      : {total_vms}         
+║  🐧 Ubuntu         : {os_stats.get('🐧', 0)}         
+║  🪟 Windows        : {os_stats.get('🪟', 0)}         
+║  🎯 Debian         : {os_stats.get('🎯', 0)}         
+║  🛡️ CentOS         : {os_stats.get('🛡️', 0)}         
+║  ⚡ Alpine         : {os_stats.get('⚡', 0)}         
+║  🔥 Kali           : {os_stats.get('🔥', 0)}         
+╚════════════════════════════════╝
+"""
+    keyboard = [[InlineKeyboardButton("◀️ BACK", callback_data="owner_panel")]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await update.callback_query.message.edit_text(stats_text, reply_markup=reply_markup)
+
+# ============ CONTROL VM ============
+async def control_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    vms = user_vms.get(user_id, [])
+    
+    if not vms:
+        await update.callback_query.message.edit_text("⚠️ Kamu belum punya VM!")
+        return
+    
+    keyboard = []
+    for vm in vms:
+        keyboard.append([InlineKeyboardButton(f"🎮 {vm['name']}", callback_data=f"control_{vm['name']}")])
+    keyboard.append([InlineKeyboardButton("◀️ BACK", callback_data="back_to_menu")])
+    
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await update.callback_query.message.edit_text("🎮 Pilih VM yang mau dikontrol:", reply_markup=reply_markup)
+
+async def control_actions(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    vm_name = update.callback_query.data.split("_")[1]
+    
+    keyboard = [
+        [InlineKeyboardButton("🔄 REBOOT", callback_data=f"reboot_{vm_name}")],
+        [InlineKeyboardButton("⏹️ STOP", callback_data=f"stop_{vm_name}")],
+        [InlineKeyboardButton("▶️ START", callback_data=f"start_{vm_name}")],
+        [InlineKeyboardButton("📊 STATUS", callback_data=f"vm_status_{vm_name}")],
+        [InlineKeyboardButton("◀️ BACK", callback_data="control_menu")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await update.callback_query.message.edit_text(f"🎮 Control: {vm_name}", reply_markup=reply_markup)
+
+async def reboot_vm(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    vm_name = update.callback_query.data.split("_")[1]
+    user_id = update.effective_user.id
+    vm = VMManager(user_id)
+    result = vm.reboot_vm(vm_name)
+    await update.callback_query.message.edit_text(result)
+
+async def stop_vm(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    vm_name = update.callback_query.data.split("_")[1]
+    user_id = update.effective_user.id
+    vm = VMManager(user_id)
+    result = vm.stop_vm(vm_name)
+    await update.callback_query.message.edit_text(result)
+
+async def start_vm(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    vm_name = update.callback_query.data.split("_")[1]
+    user_id = update.effective_user.id
+    vm = VMManager(user_id)
+    result = vm.start_vm(vm_name)
+    await update.callback_query.message.edit_text(result)
+
+async def vm_status_check(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    vm_name = update.callback_query.data.split("_")[2]
+    user_id = update.effective_user.id
+    for vm in user_vms.get(user_id, []):
+        if vm['name'] == vm_name:
+            status_text = f"""
+╔════════════════════════════╗
+║      📊 VM STATUS          ║
+╠════════════════════════════╣
+║  🖥️ Name    : {vm['name']}     
+║  💻 OS      : {vm['os']}     
+║  ⚡ RAM     : {vm['ram']}GB        
+║  🧠 CPU     : {vm['cpu']} Core      
+║  💾 Disk    : {vm['disk']}GB       
+║  🌐 IP      : {vm.get('ip', 'N/A')}        
+║  📅 Created : {vm['created']}     
+║  🟢 Status  : {vm['status']}         
+╚════════════════════════════╝
+"""
+            await update.callback_query.message.edit_text(status_text)
+            return
+
+# ============ CALLBACK HANDLER ============
+async def back_to_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    is_owner = user.id == OWNER_ID
+    vm_count = len(user_vms.get(user.id, []))
+    
+    menu_text = f"""
+{BANNER}
+
+╔════════════════════════════════════════════════╗
+║                  📊 USER INFO                  ║
+╠════════════════════════════════════════════════╣
+║  👤 NAME    : {user.first_name}                    
+║  🆔 ID      : {user.id}                         
+║  👑 STATUS  : {'🔥 OWNER 🔥' if is_owner else '⚡ FREE USER ⚡'}                 
+║  📦 VM USED  : {vm_count}/{'∞' if is_owner else '1'}                     
+╚════════════════════════════════════════════════╝
+"""
+    
+    keyboard = [
+        [InlineKeyboardButton("📦 CREATE NEW VM", callback_data="create_menu")],
+        [InlineKeyboardButton("🗑️ DELETE VM", callback_data="delete_menu")],
+        [InlineKeyboardButton("💻 INSTALL SOFTWARE", callback_data="software_menu")],
+        [InlineKeyboardButton("🎮 CONTROL PANEL", callback_data="control_menu")],
+        [InlineKeyboardButton("📊 MY VPS LIST", callback_data="my_vms")],
+        [InlineKeyboardButton("👑 OWNER ZONE", callback_data="owner_panel")] if is_owner else [],
+        [InlineKeyboardButton("ℹ️ INFO & HELP", callback_data="info")]
+    ]
+    
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await update.callback_query.message.edit_text(menu_text, reply_markup=reply_markup, parse_mode=ParseMode.HTML)
+
+# ============ MAIN ============
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_data[update.effective_user.id] = {
+        "name": update.effective_user.first_name,
+        "username": update.effective_user.username,
+        "joined": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    }
+    await menu(update, context)
+
+def main():
+    app = Application.builder().token(TOKEN).build()
+    
+    # Commands
+    app.add_handler(CommandHandler("start", start))
+    
+    # Callback handlers
+    app.add_handler(CallbackQueryHandler(create_menu, pattern="create_menu"))
+    app.add_handler(CallbackQueryHandler(delete_menu, pattern="delete_menu"))
+    app.add_handler(CallbackQueryHandler(software_menu, pattern="software_menu"))
+    app.add_handler(CallbackQueryHandler(control_menu, pattern="control_menu"))
+    app.add_handler(CallbackQueryHandler(my_vms, pattern="my_vms"))
+    app.add_handler(CallbackQueryHandler(status, pattern="status"))
+    app.add_handler(CallbackQueryHandler(owner_panel, pattern="owner_panel"))
+    app.add_handler(CallbackQueryHandler(broadcast_menu, pattern="broadcast_menu"))
+    app.add_handler(CallbackQueryHandler(broadcast_send, pattern="broadcast_send"))
+    app.add_handler(CallbackQueryHandler(owner_delete_menu, pattern="owner_delete_menu"))
+    app.add_handler(CallbackQueryHandler(owner_list_users, pattern="owner_list_users"))
+    app.add_handler(CallbackQueryHandler(owner_gift_vm, pattern="owner_gift"))
+    app.add_handler(CallbackQueryHandler(owner_stats, pattern="owner_stats"))
+    app.add_handler(CallbackQueryHandler(back_to_menu, pattern="back_to_menu"))
+    app.add_handler(CallbackQueryHandler(control_actions, pattern="^control_"))
+    app.add_handler(CallbackQueryHandler(reboot_vm, pattern="^reboot_"))
+    app.add_handler(CallbackQueryHandler(stop_vm, pattern="^stop_"))
+    app.add_handler(CallbackQueryHandler(start_vm, pattern="^start_"))
+    app.add_handler(CallbackQueryHandler(vm_status_check, pattern="^vm_status_"))
+    app.add_handler(CallbackQueryHandler(owner_execute_delete, pattern="^owner_del_"))
+    
+    # Message handlers
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_broadcast_message))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_gift_user))
+    
+    print("💀 ULTIMATE VPS MANAGER BOT ACTIVE 💀")
+    app.run_polling()
+
+if __name__ == "__main__":
+    main()
+EOF
+
+    - name: 🚀 Run Bot
+      run: |
+        python ultimate_vps_bot.py &
+        while true; do sleep 3600; done
